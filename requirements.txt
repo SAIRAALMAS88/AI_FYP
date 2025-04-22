@@ -52,3 +52,4 @@ seaborn==0.13.2
 ydata-profiling>=4.7.0
 setuptools>=68.0.0
 together
+pdfplumber
