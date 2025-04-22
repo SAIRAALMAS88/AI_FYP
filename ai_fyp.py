@@ -10,16 +10,34 @@ import os
 from together import Together
 import pdfplumber
 
-# Initialize Together API
-together_api = "76d4ee171011eb38e300cee2614c365855cd744e64282a8176cc178592aea8ce"
-client = Together(api_key=together_api)
+# Set page config
+st.set_page_config(
+    page_title="AI-Powered Data Assistant",
+    page_icon="📊",
+    layout="wide"
+)
+
+# Initialize Together API (with multiple initialization options)
+try:
+    # Option 1: Preferred method (works with latest together package)
+    together_api = st.secrets.get("TOGETHER_API_KEY", "76d4ee171011eb38e300cee2614c365855cd744e64282a8176cc178592aea8ce")
+    client = Together(api_key=together_api)
+except TypeError:
+    try:
+        # Option 2: Alternative initialization method
+        client = Together()
+        client.api_key = together_api
+    except Exception as e:
+        st.error(f"Failed to initialize Together AI client: {e}")
+        st.stop()
 
 def call_llama2(prompt):
+    """Function to call the Together AI LLama2 model with enhanced error handling"""
     try:
         response = client.chat.completions.create(
             model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=None,
+            max_tokens=512,  # Added limit for safety
             temperature=0.3,
             top_k=50,
             repetition_penalty=1,
@@ -29,209 +47,187 @@ def call_llama2(prompt):
         )
         if hasattr(response, 'choices') and response.choices:
             return response.choices[0].message.content
-        else:
-            return "No response from AI."
+        return "No response from AI."
     except Exception as e:
-        return f"AI Error: {e}"
+        return f"AI Error: {str(e)}"
 
-# Set the title of the Streamlit app
-st.title("AI-Powered Data Assistant")
+# UI Components
+st.title("📊 AI-Powered Data Assistant")
+st.markdown("""
+    Upload your dataset (CSV, Excel) or PDF document to get automated analysis, visualizations, 
+    and AI-powered insights.
+""")
 
-# Add a file uploader to allow users to upload their dataset (CSV, Excel, PDF)
-uploaded_file = st.file_uploader("Upload your dataset (CSV, Excel, or PDF)", type=["csv", "xlsx", "pdf"])
+# File uploader with enhanced type handling
+uploaded_file = st.file_uploader(
+    "Choose a file (CSV, Excel, PDF)",
+    type=["csv", "xlsx", "pdf"],
+    accept_multiple_files=False
+)
 
-# Function to read PDF file
+# Function to read PDF file with error handling
 def read_pdf(file):
-    with pdfplumber.open(file) as pdf:
-        all_text = ""
-        for page in pdf.pages:
-            all_text += page.extract_text()
-        return all_text
+    """Extract text from PDF with error handling"""
+    try:
+        with pdfplumber.open(file) as pdf:
+            return "\n".join(page.extract_text() for page in pdf.pages if page.extract_text())
+    except Exception as e:
+        st.error(f"PDF reading error: {e}")
+        return None
 
-# Check if a file has been uploaded
+# Process uploaded file
 if uploaded_file is not None:
-    # Check file type
     file_extension = uploaded_file.name.split('.')[-1].lower()
+    data_frame = None
+    
+    try:
+        if file_extension == 'csv':
+            data_frame = pd.read_csv(uploaded_file)
+        elif file_extension == 'xlsx':
+            data_frame = pd.read_excel(uploaded_file)
+        elif file_extension == 'pdf':
+            pdf_text = read_pdf(uploaded_file)
+            if pdf_text:
+                with st.expander("📄 Extracted PDF Content"):
+                    st.text(pdf_text)
+                
+                # AI analysis of PDF content
+                if st.button("Analyze PDF Content"):
+                    analysis_prompt = f"""
+                    Analyze this document and provide a summary of key points:
+                    {pdf_text[:10000]}... [content truncated]
+                    """
+                    analysis = call_llama2(analysis_prompt)
+                    st.markdown("### 📝 Document Analysis")
+                    st.write(analysis)
+            return  # Skip visualization for PDFs
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
+        st.stop()
 
-    if file_extension == 'csv':
-        # Load the dataset into a pandas DataFrame for CSV
-        data_frame = pd.read_csv(uploaded_file)
-
-    elif file_extension == 'xlsx':
-        # Load the dataset into a pandas DataFrame for Excel
-        data_frame = pd.read_excel(uploaded_file)
-
-    elif file_extension == 'pdf':
-        # Read the PDF file content (you may need to parse it further based on the layout)
-        pdf_text = read_pdf(uploaded_file)
-        st.write("### PDF Text Extracted")
-        st.write(pdf_text)
-        data_frame = None
-        st.warning("PDF files are not structured like CSV or Excel, so visualization is not possible directly.")
-
-    else:
-        st.error("Unsupported file type.")
-
-    # Check if a dataset is loaded (CSV/Excel)
+    # Data Analysis Section (for CSV/Excel)
     if data_frame is not None:
-        # Display the first few rows of the dataset
-        st.write("### Preview of the Dataset")
-        st.dataframe(data_frame.head())
+        # Basic Info Section
+        st.success(f"✅ Successfully loaded {uploaded_file.name} ({data_frame.shape[0]} rows, {data_frame.shape[1]} columns)")
+        
+        with st.expander("🔍 Dataset Preview"):
+            st.dataframe(data_frame.head(), use_container_width=True)
+            
+            if st.checkbox("Show random samples"):
+                sample_size = st.slider("Sample size", 1, 100, 10)
+                st.dataframe(data_frame.sample(sample_size), use_container_width=True)
 
-        # Allow users to view random samples of the dataset
-        if st.checkbox("Show Random Samples"):
-            sample_size = st.slider("Select sample size", 1, 100, 10)
-            st.write(f"### Random {sample_size} Samples from the Dataset")
-            st.dataframe(data_frame.sample(sample_size))
+        # Data Profiling Section
+        st.subheader("📈 Automated Data Profiling")
+        if st.button("Generate Full Profile Report"):
+            with st.spinner("Generating comprehensive profile..."):
+                try:
+                    profile = ProfileReport(data_frame, title="Dataset Profile", explorative=True)
+                    
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmpfile:
+                        profile.to_file(tmpfile.name)
+                        with open(tmpfile.name, "r", encoding="utf-8") as f:
+                            html_content = f.read()
+                    
+                    st.components.v1.html(html_content, width=1000, height=1200, scrolling=True)
+                    
+                    with open(tmpfile.name, "rb") as f:
+                        st.download_button(
+                            "Download Full Report",
+                            f.read(),
+                            "data_profile.html",
+                            "text/html"
+                        )
+                    os.unlink(tmpfile.name)
+                except Exception as e:
+                    st.error(f"Profile generation failed: {e}")
 
-        # Display basic dataset information
-        st.write("### Dataset Information")
-        st.write(f"Number of Rows: {data_frame.shape[0]}")
-        st.write(f"Number of Columns: {data_frame.shape[1]}")
-        st.write("Column Names:")
-        st.write(data_frame.columns.tolist())
-
-        # Generate the Pandas Profiling report
-        st.write("### Pandas Profiling Report")
-        if st.button("Generate Pandas Profiling Report"):
-            try:
-                prof = ProfileReport(data_frame, minimal=True)
-                st.write("Report generated successfully!")
-
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmpfile:
-                    prof.to_file(output_file=tmpfile.name)
-                    tmpfile_path = tmpfile.name
-
-                with open(tmpfile_path, "r", encoding="utf-8") as f:
-                    html_content = f.read()
-                st.components.v1.html(html_content, width=1000, height=1500, scrolling=True)
-
-                with open(tmpfile_path, "rb") as f:
-                    report_bytes = f.read()
-                st.download_button(
-                    label="Download Pandas Profiling Report",
-                    data=report_bytes,
-                    file_name="pandas_profiling_report.html",
-                    mime="text/html"
-                )
-
-                os.unlink(tmpfile_path)
-            except Exception as e:
-                st.error(f"Error generating report: {e}")
-
-        # Column Selection for Visualization
-        st.write("### Column Selection for Visualization")
-        selected_columns = st.multiselect("Select columns to visualize", data_frame.columns)
-
-        if selected_columns:
-            st.write(f"#### Visualizations for Selected Columns: {', '.join(selected_columns)}")
-
-            for column in selected_columns:
-                st.write(f"##### Column: {column}")
-
-                if data_frame[column].dtype == "object" or data_frame[column].nunique() < 10:
-                    st.write(f"**Pie Chart for {column}**")
-                    fig = px.pie(data_frame, names=column, title=f"Pie Chart for {column}")
-                    st.plotly_chart(fig)
-
-                    st.write(f"**Bar Plot for {column}**")
-                    fig = px.bar(data_frame[column].value_counts(), title=f"Bar Plot for {column}")
-                    st.plotly_chart(fig)
-
-                elif pd.api.types.is_numeric_dtype(data_frame[column]):
-                    st.write(f"**Histogram for {column}**")
-                    fig = px.histogram(data_frame, x=column, title=f"Histogram for {column}")
-                    st.plotly_chart(fig)
-
-                    st.write(f"**Boxplot for {column}**")
-                    fig = px.box(data_frame, y=column, title=f"Boxplot for {column}")
-                    st.plotly_chart(fig)
-
-                    st.write(f"**Violin Plot for {column}**")
-                    fig = px.violin(data_frame, y=column, title=f"Violin Plot for {column}")
-                    st.plotly_chart(fig)
-
-                elif pd.api.types.is_datetime64_any_dtype(data_frame[column]):
-                    st.write(f"**Time Series Plot for {column}**")
-                    fig = px.line(data_frame, x=column, y=data_frame.select_dtypes(include=["int64", "float64"]).columns[0], title=f"Time Series Plot for {column}")
-                    st.plotly_chart(fig)
-                else:
-                    st.write(f"**Unsupported data type for {column}**")
-
-        # Correlation Heatmap for Numeric Columns
-        st.write("### Correlation Heatmap")
-        numeric_columns = data_frame.select_dtypes(include=["int64", "float64"]).columns
-        if not numeric_columns.empty and len(numeric_columns) >= 2:
-            fig, ax = plt.subplots(figsize=(10, 8), dpi=100)
-            sns.heatmap(
-                data_frame[numeric_columns].corr(),
-                annot=True,
-                cmap="coolwarm",
-                fmt=".2f",
-                annot_kws={"size": 12},
-                ax=ax
+        # Visualization Section
+        st.subheader("📊 Interactive Visualizations")
+        vis_col1, vis_col2 = st.columns(2)
+        
+        with vis_col1:
+            numeric_cols = data_frame.select_dtypes(include=['number']).columns.tolist()
+            cat_cols = data_frame.select_dtypes(include=['object', 'category']).columns.tolist()
+            
+            plot_type = st.selectbox(
+                "Select visualization type",
+                ["Histogram", "Box Plot", "Scatter Plot", "Bar Chart", "Line Chart"]
             )
-            plt.xticks(rotation=45)
-            plt.yticks(rotation=0)
-            st.pyplot(fig)
-        else:
-            st.write("Not enough numeric columns for a correlation heatmap.")
+            
+            x_axis = st.selectbox("X-axis", data_frame.columns)
+            y_axis = st.selectbox("Y-axis", numeric_cols if numeric_cols else [None])
 
-        # Pairplot for Numeric Columns
-        st.write("### Pairplot for Numeric Columns")
-        if not numeric_columns.empty and len(numeric_columns) >= 2:
-            numeric_columns_list = numeric_columns.tolist()
-            default_columns = numeric_columns_list[:min(3, len(numeric_columns_list))]
-            selected_pairplot_columns = st.multiselect("Select columns for pairplot", numeric_columns_list, default=default_columns)
-            if selected_pairplot_columns:
-                fig = sns.pairplot(data_frame[selected_pairplot_columns])
-                st.pyplot(fig)
+        with vis_col2:
+            color_col = st.selectbox("Color by (optional)", [None] + cat_cols)
+            facet_col = st.selectbox("Facet by (optional)", [None] + cat_cols)
+            
+            if st.button("Generate Visualization"):
+                try:
+                    fig = None
+                    if plot_type == "Histogram":
+                        fig = px.histogram(data_frame, x=x_axis, color=color_col, facet_col=facet_col)
+                    elif plot_type == "Box Plot":
+                        fig = px.box(data_frame, x=x_axis, y=y_axis, color=color_col)
+                    elif plot_type == "Scatter Plot" and y_axis:
+                        fig = px.scatter(data_frame, x=x_axis, y=y_axis, color=color_col)
+                    elif plot_type == "Bar Chart":
+                        fig = px.bar(data_frame, x=x_axis, y=y_axis if y_axis else None, color=color_col)
+                    elif plot_type == "Line Chart" and y_axis:
+                        fig = px.line(data_frame, x=x_axis, y=y_axis, color=color_col)
+                    
+                    if fig:
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("Could not generate the selected visualization with current parameters")
+                except Exception as e:
+                    st.error(f"Visualization error: {e}")
 
-        # === AI-Powered EDA Summary ===
-        st.write("## 📊 AI-Generated EDA Summary")
-        if st.button("Generate EDA Summary"):
-            eda_summary_prompt = f"""
-The following EDA steps were performed on this dataset:
-- Preview of dataset
-- Null value check
-- Data types summary
-- Column-wise univariate visualizations (histograms, pie charts, boxplots, violin plots)
-- Correlation heatmap
-- Pairplot for numeric columns
-- Pandas Profiling report was optionally generated
+        # AI Analysis Section
+        st.subheader("🤖 AI-Powered Analysis")
+        
+        tab1, tab2 = st.tabs(["Automated EDA Summary", "Ask Questions"])
+        
+        with tab1:
+            if st.button("Generate AI Summary"):
+                with st.spinner("Analyzing data with AI..."):
+                    eda_prompt = f"""
+                    Analyze this dataset and provide insights:
+                    - Columns: {data_frame.columns.tolist()}
+                    - Sample data: {data_frame.head().to_dict()}
+                    - Null values: {data_frame.isnull().sum().to_dict()}
+                    - Data types: {data_frame.dtypes.astype(str).to_dict()}
+                    
+                    Provide:
+                    1. Data quality assessment
+                    2. Interesting patterns
+                    3. Recommended visualizations
+                    4. Potential data issues
+                    """
+                    response = call_llama2(eda_prompt)
+                    st.markdown(response)
+        
+        with tab2:
+            user_question = st.text_area("Ask anything about your data")
+            if user_question and st.button("Get Answer"):
+                with st.spinner("Thinking..."):
+                    qa_prompt = f"""
+                    Dataset info:
+                    - Columns: {data_frame.columns.tolist()}
+                    - Sample: {data_frame.head().to_dict()}
+                    - Nulls: {data_frame.isnull().sum()}
+                    
+                    Question: {user_question}
+                    
+                    Answer concisely with relevant statistics if applicable.
+                    """
+                    answer = call_llama2(qa_prompt)
+                    st.markdown(f"**Answer:** {answer}")
 
-Please provide a concise summary of the dataset’s characteristics, highlight any potential data quality issues, and suggest further analysis or preprocessing steps.
-
-Quick Stats:
-- Columns: {data_frame.columns.tolist()}
-- Nulls: {data_frame.isnull().sum().to_dict()}
-- Dtypes: {data_frame.dtypes.astype(str).to_dict()}
-"""
-
-            eda_summary = call_llama2(eda_summary_prompt)
-            st.markdown("### 📝 Summary:")
-            st.markdown(eda_summary)
-
-        # === AI-Powered Question Answering about Dataset ===
-        st.write("## 🤖 Ask Questions About Your Dataset")
-        user_question = st.text_input("Ask a question about the dataset")
-
-        if user_question:
-            # Prepare dataset sample and info
-            df_head = data_frame.head(5).to_csv(index=False)
-            df_schema = f"Column names and types: {data_frame.dtypes.astype(str).to_dict()}"
-            null_info = f"Null values: {data_frame.isnull().sum().to_dict()}"
-
-            question_prompt = f"""
-I have the following dataset:
-- Data: {df_head}
-- Schema: {df_schema}
-- Null info: {null_info}
-
-Answer the following question: {user_question}
-"""
-
-            question_answer = call_llama2(question_prompt)
-            st.markdown("### 🤖 Answer:")
-            st.write(question_answer)
-
+# Footer
+st.markdown("---")
+st.markdown("""
+    <div style="text-align: center;">
+        <p>AI-Powered Data Insights Assistant | Built with Streamlit and Together AI</p>
+    </div>
+""", unsafe_allow_html=True)
