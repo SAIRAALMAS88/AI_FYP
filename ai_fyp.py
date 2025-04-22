@@ -69,7 +69,7 @@ def read_pdf(file):
         return None
 
 # UI Components
-st.title("📊 AI-Powered Data Insights & Visualization Assistant")
+st.title("📊 AI-Powered Data Assistant")
 uploaded_file = st.file_uploader(
     "Choose a file (CSV, Excel, PDF)",
     type=["csv", "xlsx", "pdf"]
@@ -226,6 +226,6 @@ if uploaded_file is not None:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center;">
-        <p>AI-Powered Data Insights Assistant | Built with Streamlit and Together AI</p>
+        <p>AI-Powered Data Assistant | Built with Streamlit and Together AI</p>
     </div>
 """, unsafe_allow_html=True)
