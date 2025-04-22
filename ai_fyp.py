@@ -18,7 +18,7 @@ except ImportError:
     import subprocess
     import sys
     subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
-    import openpyxl  # Try importing again after installation
+    import openpyxl
 
 # Set page config
 st.set_page_config(
@@ -31,25 +31,21 @@ st.set_page_config(
 try:
     together_api = st.secrets.get("TOGETHER_API_KEY", "76d4ee171011eb38e300cee2614c365855cd744e64282a8176cc178592aea8ce")
     client = Together(api_key=together_api)
-except TypeError:
-    try:
-        client = Together()
-        client.api_key = together_api
-    except Exception as e:
-        st.error(f"Failed to initialize Together AI client: {e}")
-        st.stop()
+except Exception as e:
+    st.error(f"Failed to initialize Together AI client: {e}")
+    st.stop()
 
 def call_llama2(prompt):
-    """Function to call the Together AI LLama2 model"""
+    """Function to call the Together AI LLama2 model with improved error handling"""
     try:
         response = client.chat.completions.create(
-            model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+            model="meta-llama/Llama-3-70b-chat-hf",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
             temperature=0.3,
             top_k=50,
             repetition_penalty=1,
-            stop=["<❘end❘of❘sentence❘>"],
+            stop=["<|endoftext|>"],
             top_p=0.7,
             stream=False
         )
@@ -57,7 +53,8 @@ def call_llama2(prompt):
             return response.choices[0].message.content
         return "No response from AI."
     except Exception as e:
-        return f"AI Error: {str(e)}"
+        st.error(f"AI API Error: {str(e)}")
+        return None
 
 def read_pdf(file):
     """Extract text from PDF with error handling"""
@@ -83,22 +80,26 @@ if uploaded_file is not None:
         if file_extension == 'csv':
             data_frame = pd.read_csv(uploaded_file)
         elif file_extension == 'xlsx':
-            try:
-                data_frame = pd.read_excel(uploaded_file, engine='openpyxl')
-            except ImportError:
-                st.error("Excel file support requires 'openpyxl'. Please install with: pip install openpyxl")
-                st.stop()
+            data_frame = pd.read_excel(uploaded_file, engine='openpyxl')
         elif file_extension == 'pdf':
             pdf_text = read_pdf(uploaded_file)
             if pdf_text:
                 with st.expander("📄 Extracted PDF Content"):
-                    st.text(pdf_text)
+                    st.text(pdf_text[:2000] + ("..." if len(pdf_text) > 5000 else ""))
                 
                 if st.button("Analyze PDF Content"):
-                    analysis_prompt = f"Analyze this document and provide a summary of key points:\n{pdf_text[:10000]}"
-                    analysis = call_llama2(analysis_prompt)
-                    st.markdown("### 📝 Document Analysis")
-                    st.write(analysis)
+                    with st.spinner("Analyzing document..."):
+                        analysis_prompt = f"""Please analyze this document and provide:
+                        1. A concise summary of key points
+                        2. Main topics covered
+                        3. Any notable patterns or insights
+
+                        Document content:\n{pdf_text[:15000]}"""
+                        analysis = call_llama2(analysis_prompt)
+                        if analysis:
+                            st.markdown("### 📝 Document Analysis")
+                            st.write(analysis)
+            # Skip visualization for PDFs
     except Exception as e:
         st.error(f"Error processing file: {e}")
         st.stop()
@@ -120,7 +121,7 @@ if uploaded_file is not None:
         if st.button("Generate Full Profile Report"):
             with st.spinner("Generating comprehensive profile..."):
                 try:
-                    profile = ProfileReport(data_frame, title="Dataset Profile")
+                    profile = ProfileReport(data_frame, title="Dataset Profile", explorative=True)
                     
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmpfile:
                         profile.to_file(tmpfile.name)
@@ -181,51 +182,83 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"Visualization error: {e}")
 
-        # AI Analysis Section
+        # AI Analysis Section - Fixed EDA Summary and Q&A
         st.subheader("🤖 AI-Powered Analysis")
         
         tab1, tab2 = st.tabs(["Automated EDA Summary", "Ask Questions"])
         
         with tab1:
-            if st.button("Generate AI Summary"):
+            if st.button("Generate EDA Summary"):
                 with st.spinner("Analyzing data with AI..."):
-                    eda_prompt = f"""
-                    Analyze this dataset and provide insights:
-                    - Columns: {data_frame.columns.tolist()}
-                    - Sample data: {data_frame.head().to_dict()}
-                    - Null values: {data_frame.isnull().sum().to_dict()}
-                    - Data types: {data_frame.dtypes.astype(str).to_dict()}
+                    # Prepare dataset sample
+                    sample_data = data_frame.head(3).to_dict(orient='records')
                     
-                    Provide:
-                    1. Data quality assessment
-                    2. Interesting patterns
-                    3. Recommended visualizations
-                    4. Potential data issues
-                    """
+                    eda_prompt = f"""Analyze this dataset and provide a structured report:
+                    
+                    Dataset Overview:
+                    - Shape: {data_frame.shape}
+                    - Columns: {list(data_frame.columns)}
+                    - Sample Rows: {sample_data}
+                    
+                    Please provide:
+                    1. Data Quality Assessment (missing values, duplicates)
+                    2. Statistical Summary (for numeric columns)
+                    3. Interesting Patterns/Observations
+                    4. Recommendations for:
+                       - Data Cleaning
+                       - Further Analysis
+                       - Potential Visualizations
+                    
+                    Keep the response concise and structured with clear headings."""
+                    
                     response = call_llama2(eda_prompt)
-                    st.markdown(response)
+                    if response:
+                        st.markdown("### 📝 AI-Generated EDA Summary")
+                        st.markdown(response)
+                    else:
+                        st.error("Failed to generate EDA summary")
         
         with tab2:
-            user_question = st.text_area("Ask anything about your data")
+            user_question = st.text_area("Ask anything about your data", height=100)
             if user_question and st.button("Get Answer"):
-                with st.spinner("Thinking..."):
-                    qa_prompt = f"""
-                    Dataset info:
-                    - Columns: {data_frame.columns.tolist()}
-                    - Sample: {data_frame.head().to_dict()}
-                    - Nulls: {data_frame.isnull().sum()}
+                with st.spinner("Analyzing your question..."):
+                    # Prepare context
+                    context = {
+                        "columns": list(data_frame.columns),
+                        "dtypes": data_frame.dtypes.astype(str).to_dict(),
+                        "sample": data_frame.head(3).to_dict(orient='records'),
+                        "null_counts": data_frame.isnull().sum().to_dict()
+                    }
+                    
+                    qa_prompt = f"""You are a data analyst assistant. Answer the following question about the dataset:
                     
                     Question: {user_question}
                     
-                    Answer concisely with relevant statistics if applicable.
-                    """
+                    Dataset Context:
+                    - Columns: {context['columns']}
+                    - Data Types: {context['dtypes']}
+                    - Sample Data: {context['sample']}
+                    - Null Values Count: {context['null_counts']}
+                    
+                    Provide:
+                    1. A clear answer to the question
+                    2. Relevant statistics if applicable
+                    3. Any caveats or limitations in the data
+                    4. Suggestions for further analysis if relevant
+                    
+                    If the question cannot be answered with the available data, explain why."""
+                    
                     answer = call_llama2(qa_prompt)
-                    st.markdown(f"**Answer:** {answer}")
+                    if answer:
+                        st.markdown("### 🤖 Analysis Results")
+                        st.markdown(answer)
+                    else:
+                        st.error("Failed to get answer from AI")
 
 # Footer
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center;">
-        <p>AI-Powered Data Assistant | Built with Streamlit and Together AI</p>
+        <p>AI-Powered Data Insights Assistant | Built with Streamlit and Together AI</p>
     </div>
 """, unsafe_allow_html=True)
