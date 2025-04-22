@@ -35,8 +35,8 @@ def call_llama2(prompt):
         response = client.chat.completions.create(
             model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=512,
-            temperature=0.2,
+            max_tokens=1024,
+            temperature=0.3,
             top_k=50,
             repetition_penalty=1,
             stop=["<❘end❘of❘sentence❘>"],
