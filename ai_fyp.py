@@ -10,6 +10,16 @@ import os
 from together import Together
 import pdfplumber
 
+# Check for required dependencies
+try:
+    import openpyxl
+except ImportError:
+    st.warning("The 'openpyxl' package is required for Excel file support. Installing now...")
+    import subprocess
+    import sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "openpyxl"])
+    import openpyxl  # Try importing again after installation
+
 # Set page config
 st.set_page_config(
     page_title="AI-Powered Data Insights",
@@ -59,7 +69,7 @@ def read_pdf(file):
         return None
 
 # UI Components
-st.title("📊 AI-Powered Data Assistant")
+st.title("📊 AI-Powered Data Insights & Visualization Assistant")
 uploaded_file = st.file_uploader(
     "Choose a file (CSV, Excel, PDF)",
     type=["csv", "xlsx", "pdf"]
@@ -73,7 +83,11 @@ if uploaded_file is not None:
         if file_extension == 'csv':
             data_frame = pd.read_csv(uploaded_file)
         elif file_extension == 'xlsx':
-            data_frame = pd.read_excel(uploaded_file)
+            try:
+                data_frame = pd.read_excel(uploaded_file, engine='openpyxl')
+            except ImportError:
+                st.error("Excel file support requires 'openpyxl'. Please install with: pip install openpyxl")
+                st.stop()
         elif file_extension == 'pdf':
             pdf_text = read_pdf(uploaded_file)
             if pdf_text:
@@ -85,7 +99,6 @@ if uploaded_file is not None:
                     analysis = call_llama2(analysis_prompt)
                     st.markdown("### 📝 Document Analysis")
                     st.write(analysis)
-            # Skip visualization for PDFs by not setting data_frame
     except Exception as e:
         st.error(f"Error processing file: {e}")
         st.stop()
@@ -213,6 +226,6 @@ if uploaded_file is not None:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center;">
-        <p>AI-Powered Data Insights Assistant</p>
+        <p>AI-Powered Data Insights Assistant | Built with Streamlit and Together AI</p>
     </div>
 """, unsafe_allow_html=True)
