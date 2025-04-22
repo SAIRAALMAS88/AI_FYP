@@ -54,3 +54,4 @@ setuptools>=68.0.0
 together
 openpyxl
 pdfplumber
+openpyxl
