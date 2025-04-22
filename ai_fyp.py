@@ -12,19 +12,17 @@ import pdfplumber
 
 # Set page config
 st.set_page_config(
-    page_title="AI-Powered Data Assistant",
+    page_title="AI-Powered Data Insights",
     page_icon="📊",
     layout="wide"
 )
 
-# Initialize Together API (with multiple initialization options)
+# Initialize Together API
 try:
-    # Option 1: Preferred method (works with latest together package)
     together_api = st.secrets.get("TOGETHER_API_KEY", "76d4ee171011eb38e300cee2614c365855cd744e64282a8176cc178592aea8ce")
     client = Together(api_key=together_api)
 except TypeError:
     try:
-        # Option 2: Alternative initialization method
         client = Together()
         client.api_key = together_api
     except Exception as e:
@@ -32,13 +30,13 @@ except TypeError:
         st.stop()
 
 def call_llama2(prompt):
-    """Function to call the Together AI LLama2 model with enhanced error handling"""
+    """Function to call the Together AI LLama2 model"""
     try:
         response = client.chat.completions.create(
             model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=512,  # Added limit for safety
-            temperature=0.3,
+            max_tokens=512,
+            temperature=0.2,
             top_k=50,
             repetition_penalty=1,
             stop=["<❘end❘of❘sentence❘>"],
@@ -51,21 +49,6 @@ def call_llama2(prompt):
     except Exception as e:
         return f"AI Error: {str(e)}"
 
-# UI Components
-st.title("📊 AI-Powered Data Assistant")
-st.markdown("""
-    Upload your dataset (CSV, Excel) or PDF document to get automated analysis, visualizations, 
-    and AI-powered insights.
-""")
-
-# File uploader with enhanced type handling
-uploaded_file = st.file_uploader(
-    "Choose a file (CSV, Excel, PDF)",
-    type=["csv", "xlsx", "pdf"],
-    accept_multiple_files=False
-)
-
-# Function to read PDF file with error handling
 def read_pdf(file):
     """Extract text from PDF with error handling"""
     try:
@@ -75,7 +58,13 @@ def read_pdf(file):
         st.error(f"PDF reading error: {e}")
         return None
 
-# Process uploaded file
+# UI Components
+st.title("📊 AI-Powered Data Insights & Visualization Assistant")
+uploaded_file = st.file_uploader(
+    "Choose a file (CSV, Excel, PDF)",
+    type=["csv", "xlsx", "pdf"]
+)
+
 if uploaded_file is not None:
     file_extension = uploaded_file.name.split('.')[-1].lower()
     data_frame = None
@@ -91,21 +80,17 @@ if uploaded_file is not None:
                 with st.expander("📄 Extracted PDF Content"):
                     st.text(pdf_text)
                 
-                # AI analysis of PDF content
                 if st.button("Analyze PDF Content"):
-                    analysis_prompt = f"""
-                    Analyze this document and provide a summary of key points:
-                    {pdf_text[:10000]}... [content truncated]
-                    """
+                    analysis_prompt = f"Analyze this document and provide a summary of key points:\n{pdf_text[:10000]}"
                     analysis = call_llama2(analysis_prompt)
                     st.markdown("### 📝 Document Analysis")
                     st.write(analysis)
-            return  # Skip visualization for PDFs
+            # Skip visualization for PDFs by not setting data_frame
     except Exception as e:
         st.error(f"Error processing file: {e}")
         st.stop()
 
-    # Data Analysis Section (for CSV/Excel)
+    # Only show data analysis if we have a dataframe (CSV/Excel)
     if data_frame is not None:
         # Basic Info Section
         st.success(f"✅ Successfully loaded {uploaded_file.name} ({data_frame.shape[0]} rows, {data_frame.shape[1]} columns)")
@@ -122,7 +107,7 @@ if uploaded_file is not None:
         if st.button("Generate Full Profile Report"):
             with st.spinner("Generating comprehensive profile..."):
                 try:
-                    profile = ProfileReport(data_frame, title="Dataset Profile", explorative=True)
+                    profile = ProfileReport(data_frame, title="Dataset Profile")
                     
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as tmpfile:
                         profile.to_file(tmpfile.name)
@@ -228,6 +213,6 @@ if uploaded_file is not None:
 st.markdown("---")
 st.markdown("""
     <div style="text-align: center;">
-        <p>AI-Powered Data Insights Assistant | Built with Streamlit and Together AI</p>
+        <p>AI-Powered Data Insights Assistant</p>
     </div>
 """, unsafe_allow_html=True)
