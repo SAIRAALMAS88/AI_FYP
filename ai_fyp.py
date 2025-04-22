@@ -27,10 +27,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# Initialize Together API
+# Initialize Together API - CORRECT INITIALIZATION METHOD
 try:
-    together_api = st.secrets.get("TOGETHER_API_KEY", "76d4ee171011eb38e300cee2614c365855cd744e64282a8176cc178592aea8ce")
-    client = Together(api_key=together_api)
+    together_api = st.secrets.get("TOGETHER_API_KEY", "your-api-key-here")
+    client = Together()
+    client.api_key = together_api  # Correct way to set API key in current version
 except Exception as e:
     st.error(f"Failed to initialize Together AI client: {e}")
     st.stop()
@@ -66,7 +67,7 @@ def read_pdf(file):
         return None
 
 # UI Components
-st.title("📊 AI-Powered Data Assistant")
+st.title("📊 AI-Powered Data Insights & Visualization Assistant")
 uploaded_file = st.file_uploader(
     "Choose a file (CSV, Excel, PDF)",
     type=["csv", "xlsx", "pdf"]
@@ -85,7 +86,7 @@ if uploaded_file is not None:
             pdf_text = read_pdf(uploaded_file)
             if pdf_text:
                 with st.expander("📄 Extracted PDF Content"):
-                    st.text(pdf_text[:2000] + ("..." if len(pdf_text) > 5000 else ""))
+                    st.text(pdf_text[:5000] + ("..." if len(pdf_text) > 5000 else ""))
                 
                 if st.button("Analyze PDF Content"):
                     with st.spinner("Analyzing document..."):
@@ -182,13 +183,13 @@ if uploaded_file is not None:
                 except Exception as e:
                     st.error(f"Visualization error: {e}")
 
-        # AI Analysis Section - Fixed EDA Summary and Q&A
+        # AI Analysis Section
         st.subheader("🤖 AI-Powered Analysis")
         
         tab1, tab2 = st.tabs(["Automated EDA Summary", "Ask Questions"])
         
         with tab1:
-            if st.button("Generate EDA Summary"):
+            if st.button("Generate AI Summary"):
                 with st.spinner("Analyzing data with AI..."):
                     # Prepare dataset sample
                     sample_data = data_frame.head(3).to_dict(orient='records')
@@ -253,12 +254,4 @@ if uploaded_file is not None:
                         st.markdown("### 🤖 Analysis Results")
                         st.markdown(answer)
                     else:
-                        st.error("Failed to get answer from AI")
-
-# Footer
-st.markdown("---")
-st.markdown("""
-    <div style="text-align: center;">
-        <p>AI-Powered Data Insights Assistant | Built with Streamlit and Together AI</p>
-    </div>
-""", unsafe_allow_html=True)
+                        st.error("Failed to
