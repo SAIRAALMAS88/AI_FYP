@@ -59,7 +59,7 @@ def read_pdf(file):
         return None
 
 # UI Components
-st.title("📊 AI-Powered Data Insights & Visualization Assistant")
+st.title("📊 AI-Powered Data Assistant")
 uploaded_file = st.file_uploader(
     "Choose a file (CSV, Excel, PDF)",
     type=["csv", "xlsx", "pdf"]
